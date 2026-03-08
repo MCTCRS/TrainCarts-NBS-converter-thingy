@@ -8,33 +8,9 @@ function debugLog(message) {
     //console.log("DEBUG: " + message);
 }
 
-const keyToPitchArray = [
-  0.5,
-  0.53,
-  0.56,
-  0.6,
-  0.63,
-  0.67,
-  0.7,
-  0.76,
-  0.8,
-  0.84,
-  0.9,
-  0.94,
-  1.0,
-  1.06,
-  1.12,
-  1.18,
-  1.26,
-  1.34,
-  1.42,
-  1.5,
-  1.6,
-  1.68,
-  1.78,
-  1.88,
-  2.0
-];
+function keyToPitchArray(key) {
+    return Math.pow(2, (key - 12) / 12);
+}
 
 const soundFileToPlaysound = {
     "harp.ogg": "block.note_block.harp",
@@ -84,12 +60,24 @@ async function convertButtonClicked() {
     const out = toConfigYML(songData, song);
 
     debugLog("upLoadToHasteBin");
-    setState("uploading to trancarts");
-    const link = await upLoadToHasteBin(out);
+    setState("uploading to traincarts");
+
+    let link;
+    try {
+        link = await upLoadToHasteBin(out);
+    } catch(_) {}
+
+    if (!link) {
+        setState("failed to upload to traincarts");
+        const download = confirm("Failed to upload, would you like to download as a text file?");
+        if (download) {
+            downloadFile("train.txt", out);
+        }
+    }
     setState("        done");
 
     debugLog("outputResult");
-    outputResult("/train chest import " + link)
+    outputResult("/train chest import https://paste.traincarts.net/" + link)
 }
 
 async function upLoadToHasteBin(body) {
@@ -99,7 +87,7 @@ async function upLoadToHasteBin(body) {
         body: body
     });
     let data = await res.json();
-    return "https://paste.traincarts.net/" + data.key
+    return data.key
 }
 
 function copyButtonClicked() {
@@ -113,6 +101,18 @@ function outputResult(text) {
 
 function setState(text) {
     document.getElementById("state").textContent = "          " + text;
+}
+
+function downloadFile(filename, text) {
+    let blob = new Blob([text], { type: "text/plain" });
+
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+
+    a.click();
+
+    URL.revokeObjectURL(a.href);
 }
 
 function toConfigYML(songData, song) {
@@ -132,7 +132,7 @@ function toConfigYML(songData, song) {
     //SEQ ATTACHMENT
     const seqTimeConfig = {
         timeSignature: `${song.timeSignature}/4`,
-        bpm: song.getTempo() * 60,
+        bpm: (song.getTempo() * 15),
         pitchClasses: 12
     }
     const seqEffects = [];
@@ -235,7 +235,7 @@ function dataStructure(notes, song, insm) {
         //push
         ((data["" + insm[instrument]] ??= {})["" + (volume / 100)] ??= []).push({
             time: tick / tempo,
-            pitch: keyToPitchArray[key - 33]
+            pitch: keyToPitchArray(key - 33)
         });
     }
     return data;
