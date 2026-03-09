@@ -3,13 +3,17 @@ import * as yaml from "https://esm.run/js-yaml";
 
 document.getElementById("convert-btn").addEventListener("click", convertButtonClicked);
 document.getElementById("copy-btn").addEventListener("click", copyButtonClicked);
+document.getElementById("output-type").addEventListener("input", outputType);
+document.getElementById("upload-url").addEventListener("change", outputType);
+
+let convertOuts = {}
 
 function debugLog(message) {
-    //console.log("DEBUG: " + message);
+    console.log("DEBUG: " + message);
 }
 
 function keyToPitchArray(key) {
-    return Math.pow(2, (key - 12) / 12);
+    return Number(Math.pow(2, (key - 12) / 12).toFixed(5));
 }
 
 const soundFileToPlaysound = {
@@ -33,62 +37,51 @@ const soundFileToPlaysound = {
 
 
 async function convertButtonClicked() {
-    debugLog("Convert button clicked");
-    outputResult("")
-    //get file
-    let rawFile = document.getElementById("file-input").files[0];
-    debugLog("array buffer");
-    setState("reading file");
-    const buf = await rawFile.arrayBuffer();
-    const song = nbs.fromArrayBuffer(buf);
-    debugLog("buffer done");
-
-    debugLog("createInstrumentData");
-    setState("reading instrument data");
-    const instrumentsData = createInstrumentData(song.instruments.all);
-
-    debugLog("getAudibleNotes");
-    setState("reading notes");
-    const audibleNotes = getAudibleNotes(song);
-
-    debugLog("dataStructure");
-    setState("creating note fonts");
-    const songData = dataStructure(audibleNotes, song, instrumentsData);
-
-    debugLog("toConfigYML");
-    setState("converting to yml")
-    const out = toConfigYML(songData, song);
-
-    debugLog("upLoadToHasteBin");
-    setState("uploading to traincarts");
-
-    let link;
     try {
-        link = await upLoadToHasteBin(out);
-    } catch(_) {}
+        debugLog("convert clicked");
+        outputResult("");
+        convertOuts = {};
 
-    if (!link) {
-        setState("failed to upload to traincarts");
-        const download = confirm("Failed to upload, would you like to download as a text file?");
-        if (download) {
-            downloadFile("train.txt", out);
+        const input = document.getElementById("file-input");
+
+        if (input.files.length !== 1) {
+            alert("please select exactly one .nbs file");
+            return;
         }
-    }
-    setState("        done");
 
-    debugLog("outputResult");
-    outputResult("/train chest import https://paste.traincarts.net/" + link)
+        const rawFile = input.files[0];
+
+        if (!rawFile.name.toLowerCase().endsWith(".nbs")) {
+            alert("file must be a .nbs file");
+            return;
+        }
+
+        setState("reading file");
+        const buf = await rawFile.arrayBuffer();
+        const song = nbs.fromArrayBuffer(buf);
+
+        setState("reading instruments");
+        const instrumentsData = createInstrumentData(song.instruments.all);
+
+        setState("reading notes");
+        const audibleNotes = getAudibleNotes(song);
+
+        setState("building song data");
+        const songData = dataStructure(audibleNotes, song, instrumentsData);
+
+        setState("building attachment");
+        const out = toAttachment(songData, song);
+
+        setState("");
+        convertOuts.base = out;
+
+        outputType();
+    } catch(err) {
+        alert("failed to convert file: " + err)
+    } 
 }
 
-async function upLoadToHasteBin(body) {
-    let res = await fetch("https://paste.traincarts.net/documents", {
-        method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: body
-    });
-    let data = await res.json();
-    return data.key
-}
+
 
 function copyButtonClicked() {
     document.getElementById("output").select();
@@ -103,19 +96,118 @@ function setState(text) {
     document.getElementById("state").textContent = "          " + text;
 }
 
-function downloadFile(filename, text) {
-    let blob = new Blob([text], { type: "text/plain" });
+async function outputType() {
+    if (!convertOuts.base) return;
+    const outputType = document.getElementById("output-type").value;
+    const uploadasURL = document.getElementById("upload-url").checked;
+    let out = ""
+    
+    if (outputType == "train") {
+        if (uploadasURL) {
+            out = await OutPut.train_url()
+        } else {
+            out = OutPut.train_yml()
+        }
+    } else {
+        //attachment
+        if (uploadasURL) {
+            out = await OutPut.attachment_url()
+        } else {
+            out = OutPut.attachment_yml()
+        }
+    }
 
-    let a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-
-    a.click();
-
-    URL.revokeObjectURL(a.href);
+    outputResult(out);
 }
 
-function toConfigYML(songData, song) {
+class OutPut {
+    static attachment_yml() {
+        //return cache
+        if ("attachment_yml" in convertOuts) return convertOuts.attachment_yml;
+        convertOuts.attachment_yml = yaml.dump(convertOuts.base)
+        return convertOuts.attachment_yml;
+    }
+
+    static train_yml() {
+        //return cache
+        if ("train_yml" in convertOuts) return convertOuts.train_yml;
+        convertOuts.train_yml = yaml.dump(OutPut.wrapTrainObject(convertOuts.base))
+        return convertOuts.train_yml;
+    }
+
+    static async attachment_url() {
+        //return cache
+        if ("attachment_url" in convertOuts) return convertOuts.attachment_url;
+        convertOuts.attachment_url = await OutPut.upload(OutPut.attachment_yml());
+        return convertOuts.attachment_url;
+    }
+
+    static async train_url() {
+        //return cache
+        if ("train_url" in convertOuts) return convertOuts.train_url;
+        convertOuts.train_url = await OutPut.upload(OutPut.train_yml());
+        return convertOuts.train_url;
+    }
+
+    static async upload(data) {
+        let link;
+
+        setState("      uploading...");
+
+        try {
+            const res = await fetch("https://paste.traincarts.net/documents", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "text/plain"
+                },
+                body: data
+            });
+
+            const json = await res.json();
+            link = json.key;
+
+        } catch (err) {
+            console.error(err);
+        }
+
+        setState("");
+
+        if (!link) {
+            alert("failed to upload to traincarts");
+            return "";
+        }
+
+        return "https://paste.traincarts.net/" + link;
+    }
+
+
+    static wrapTrainObject(attatchment) {
+        return {
+            carts: {
+                0: {
+                    model: {
+                        type: "ENTITY",
+                        entityType: "MINECART",
+                        attachments: {
+                            0: attatchment
+                        },
+                        editor: {
+                            selectedIndex: 0
+                        }
+                    },
+                    entityType: "MINECART",
+                    flipped: false
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+function toAttachment(songData, song) {
 
     //SOUND ATTTACHMENT
     const soundAttachments = [];
@@ -159,29 +251,12 @@ function toConfigYML(songData, song) {
         start: {
             duration: song.getDuration() / 1000,
             effects: seqEffects
-        }
+        },
+        attachments: Object.assign({}, [...soundAttachments])
     }
 
-    const allAttachment = Object.assign({},[seqAttachment, ...soundAttachments]);
-    //BASE
-    const attachBase = {
-        carts: {
-            0: {
-            model: {
-                type: "ENTITY",
-                entityType: "MINECART",
-                attachments: allAttachment,
-                editor: {
-                selectedIndex: 0
-                }
-            },
-            entityType: "MINECART",
-            flipped: false
-            }
-        }
-    }
-
-    return yaml.dump(attachBase);
+    //const allAttachment = Object.assign({},[seqAttachment]);
+    return seqAttachment;
 }
 
 
@@ -231,8 +306,13 @@ function dataStructure(notes, song, insm) {
     notes.sort((a, b) => a.tick - b.tick)
     for (const note of notes) {
         //get notedata
-        const {key, instrument, volume, tick} = note;
-        //push
+        const {
+            key,
+            instrument,
+            volume,
+            tick
+        } = note;
+
         ((data["" + insm[instrument]] ??= {})["" + (volume / 100)] ??= []).push({
             time: tick / tempo,
             pitch: keyToPitchArray(key - 33)
