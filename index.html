@@ -30,13 +30,16 @@ body {
     margin-top: 2px;
 }
 
-input, button {
+input, button, select, textarea {
     background: #000;
     color: #fff;
     border: 1px solid #fff;
     font-family: "Courier New", monospace;
-    padding: 4px;
 }
+
+input, button { padding: 4px; }
+select { padding: 1px; }
+textarea { padding: 4px; }
 
 button:hover {
     background: #fff;
@@ -77,13 +80,23 @@ button:hover {
 
 Upload NBS:
 <div class="row">
-<input id="file-input" type="file">
+<input id="file-input" type="file" accept=".nbs">
 <button id="convert-btn">CONVERT</button>
 </div>
 <span style="text-align:center;" id="state"></span>
-Output:
 <div class="row">
-<input id="output" readonly>
+<span>Output </span>
+<select id="output-type">
+    <option value="train">train</option>
+    <option value="attachment">attachment</option>
+</select>
+<label style="display:flex;align-items:center;gap:4px;">
+<input type="checkbox" id="upload-url">
+<span>as URL</span>
+</label>
+</div>
+<div class="row">
+<textarea id="output" rows="3" readonly></textarea>
 <button id="copy-btn">COPY</button>
 </div>
 
